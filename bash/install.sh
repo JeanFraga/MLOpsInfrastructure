@@ -195,19 +195,19 @@ fi
 # fi
 
 # Install and check Google Cloud SDK
-# if ! command -v gcloud &> /dev/null; then
-#     echo "Google Cloud SDK not found. Installing..."
-#     if [[ "$OSTYPE" == "darwin"* ]]; then
-#         brew install --cask google-cloud-sdk
-#     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-#         curl -fsSL https://sdk.cloud.google.com | bash
-#     elif [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]]; then
-#         choco install google-cloud-sdk
-#     else
-#         echo "Unsupported OS for Google Cloud SDK installation: $OSTYPE"
-#         exit 1
-#     fi
-# fi
+if ! command -v gcloud &> /dev/null; then
+    echo "Google Cloud SDK not found. Installing..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install --cask google-cloud-sdk
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        curl -fsSL https://sdk.cloud.google.com | bash
+    elif [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]]; then
+        choco install google-cloud-sdk
+    else
+        echo "Unsupported OS for Google Cloud SDK installation: $OSTYPE"
+        exit 1
+    fi
+fi
 
 # Pull necessary Docker images
 # echo "Pulling necessary Docker images..."
@@ -243,12 +243,19 @@ echo "Updating Bitnami Helm repository..."
 helm repo update
 
 # List of Helm charts to download
-charts=("airflow" "minio" "postgresql" "spark" "jupyterhub" "mlflow" "prometheus" "grafana" "jenkins")
+charts=("airflow" "minio" "spark" "jupyterhub" "mlflow" "prometheus" "grafana" "jenkins")
 
-# Download each chart
+# Create a directory for the Helm charts
+mkdir -p bitnami_config
+
+# Download each chart into the bitnami_config directory
 for chart in "${charts[@]}"; do
-    echo "Downloading $chart chart..."
-    helm pull bitnami/$chart --untar
+    if [ ! -d "bitnami_config/$chart" ]; then
+        echo "Downloading $chart chart..."
+        helm pull bitnami/"$chart" --untar --untardir bitnami_config
+    else
+        echo "$chart chart is already downloaded."
+    fi
 done
 
 echo "All specified Helm charts have been downloaded."
