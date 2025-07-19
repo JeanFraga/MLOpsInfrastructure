@@ -1,137 +1,115 @@
-# MLOps Platform Documentation
+# MLOps Infrastructure Documentation Index
 
-Welcome to the comprehensive documentation for the MLOps Platform on Kubernetes.
+## 📚 Documentation Overview
 
-## 📚 Documentation Index
+This directory contains comprehensive documentation for the MLOps Infrastructure platform. The documentation is organized into several categories to help different roles understand and operate the platform effectively.
 
-### 🚀 Getting Started
-- **[Quick Start Guide](../README.md)** - Fast track to deployment
-- **[Ansible Deployment Guide](ANSIBLE-DEPLOYMENT-GUIDE.md)** - Complete team-friendly deployment procedures
+## �️ Documentation Structure
+
+### 🚀 Getting Started & Platform Guide
+- **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** - **🌟 START HERE** - Complete platform capabilities, GitOps benefits, and setup guide
+- **[README.md](README.md)** - Main project overview and quick start guide
+
+### 🔧 Technical Deep Dives
+- **[GITOPS-TECHNICAL-GUIDE.md](GITOPS-TECHNICAL-GUIDE.md)** - Technical implementation details of GitOps with Flux CD
+- **[OPERATIONS-GUIDE.md](OPERATIONS-GUIDE.md)** - Day-to-day platform operations, monitoring, and troubleshooting
+
+### 📋 Deployment & Migration Guides
+- **[ANSIBLE-DEPLOYMENT-GUIDE.md](ANSIBLE-DEPLOYMENT-GUIDE.md)** - Legacy automated deployment using Ansible
+- **[GITOPS-MIGRATION-PLAN.md](GITOPS-MIGRATION-PLAN.md)** - Migration plan to GitOps (historical)
+- **[GITOPS-MIGRATION-COMPLETE.md](GITOPS-MIGRATION-COMPLETE.md)** - GitOps implementation status and outcomes
+
+### 🎯 Hands-On Guides
+- **[DEMO-GUIDE.md](DEMO-GUIDE.md)** - Step-by-step demo of platform capabilities
 
 ### 🏗️ Architecture & Design
-- **[Platform Architecture](README.md)** - Detailed system architecture and design principles
-- **[Project Structure](PROJECT-STRUCTURE.md)** - Optimized project organization and best practices
-- **[Component Integration](README.md#part-5-weaving-the-fabric-integrating-the-platform-components)** - How services connect and communicate
+- **[PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)** - Detailed project structure and component relationships
 
-### 📋 Deployment & Operations
-- **[Deployment Summary](mlops-deployment-summary.txt)** - Platform deployment status and configuration
-- **[Ansible Playbook Structure](ANSIBLE-DEPLOYMENT-GUIDE.md#deployment-script-changes)** - Understanding the automation structure
+### 🛠️ Operations & Maintenance
+- **[CLEANUP-GUIDE.md](CLEANUP-GUIDE.md)** - Safe teardown and cleanup procedures
+- **[OPTIMIZATION-SUMMARY.md](OPTIMIZATION-SUMMARY.md)** - Performance optimization recommendations
 
-### 🔧 Configuration & Customization
-- **[Namespace Strategy](ANSIBLE-DEPLOYMENT-GUIDE.md#6-tier-namespace-strategy)** - Six-tier namespace architecture
-- **[Observability Stack](ANSIBLE-DEPLOYMENT-GUIDE.md#observability-stack)** - Monitoring and alerting configuration
-- **[Team Maintainability](ANSIBLE-DEPLOYMENT-GUIDE.md#team-maintainability-features)** - Features for collaborative development
+## 🎯 Documentation by Role
 
-### 📊 Monitoring & Observability
-- **[CPU Usage Monitoring](ANSIBLE-DEPLOYMENT-GUIDE.md#observability-access)** - Accessing monitoring dashboards
-- **[ServiceMonitors](ANSIBLE-DEPLOYMENT-GUIDE.md#servicemonitors-for-mlops-operators)** - Automated metrics collection
-- **[Dashboard Configuration](ANSIBLE-DEPLOYMENT-GUIDE.md#pre-configured-dashboards)** - Ready-to-use Grafana dashboards
-
-### 🔄 MLOps Workflows
-- **[End-to-End Pipelines](README.md#the-end-to-end-vision)** - Complete MLOps workflow examples
-- **[Component Integration Matrix](README.md#component-integration-matrix)** - Service interaction patterns
-
-### 👥 Team Collaboration
-- **[GitOps Approach](ANSIBLE-DEPLOYMENT-GUIDE.md#team-collaboration)** - Version-controlled infrastructure
-- **[Development Workflow](ANSIBLE-DEPLOYMENT-GUIDE.md#development-workflow)** - Best practices for teams
-- **[Configuration Management](ANSIBLE-DEPLOYMENT-GUIDE.md#configuration-management)** - Maintaining consistent environments
-
-## 🚀 Quick Demo
-
-Experience the complete MLOps platform with our comprehensive demonstration:
-
-```bash
-# Run the end-to-end demo pipeline
-./scripts/run-mlops-demo.sh
-
-# View demo documentation
-cat docs/DEMO-GUIDE.md
-```
-
-**Demo Features:**
-- Real-time IoT sensor data simulation with Kafka
-- Stream processing and feature engineering with Flink  
-- ML model training and tracking with MLflow
-- Data archival and versioning with MinIO
-- Complete pipeline orchestration with Airflow
-- Performance monitoring and alerting
-
-The demo runs for 2 hours by default and generates comprehensive reports showing:
-- ✅ Data throughput: 50+ events/second
-- ✅ ML models: 4 algorithms trained and compared
-- ✅ Model performance: F1 scores >0.7
-- ✅ Infrastructure health: All services operational
-
-See [DEMO-GUIDE.md](DEMO-GUIDE.md) for detailed instructions and customization options.
-
----
-
-## 🛠️ Component Documentation
-
-### Platform Components
-| Component | Documentation | Purpose |
-|-----------|---------------|---------|
-| **Apache Airflow** | [Helm Chart Docs](../airflow/README.md) | Workflow orchestration |
-| **Strimzi Kafka** | [Architecture Guide](README.md#deploying-apache-kafka-with-the-strimzi-operator) | Messaging & streaming |
-| **MinIO** | [Architecture Guide](README.md#deploying-minio-with-the-minio-operator) | Object storage |
-| **Apache Spark** | [Architecture Guide](README.md#deploying-apache-spark-with-the-kubernetes-operator) | Batch processing |
-| **Apache Flink** | [Architecture Guide](README.md#deploying-apache-flink-with-the-kubernetes-operator) | Stream processing |
-| **MLflow** | [Architecture Guide](README.md#deploying-mlflow) | ML lifecycle management |
-| **Prometheus/Grafana** | [Observability Guide](ANSIBLE-DEPLOYMENT-GUIDE.md#observability-stack) | Monitoring & observability |
-
-## 🎯 Quick Reference
-
-### Common Commands
-```bash
-# Validate environment
-./deploy.sh validate
-
-# Deploy full platform  
-./deploy.sh deploy
-
-# Check status
-./deploy.sh status
-
-# Access monitoring
-kubectl port-forward -n observability svc/kube-prometheus-stack-grafana 3000:80
-```
-
-### Key URLs
-- **Grafana**: `http://localhost:3000` (admin/admin123)
-- **MLflow**: `http://localhost:5000`
-- **Airflow**: `http://localhost:8080`
-- **Prometheus**: `http://localhost:9090`
-
-### Important Files
-- `infrastructure/ansible-playbook.yml` - Main deployment automation
-- `deploy.sh` - Primary deployment script
-- `infrastructure/ansible.cfg` - Ansible configuration
-
-## 📖 Reading Path
+### For New Users (Start Here!)
+1. **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** - Complete overview and setup instructions
+2. **[DEMO-GUIDE.md](DEMO-GUIDE.md)** - Hands-on platform exploration
 
 ### For Platform Engineers
-1. [Platform Architecture](README.md) - Understand the complete system design
-2. [Ansible Deployment Guide](ANSIBLE-DEPLOYMENT-GUIDE.md) - Learn the deployment methodology
-3. [Configuration Management](ANSIBLE-DEPLOYMENT-GUIDE.md#configuration-management) - Customize for your environment
+1. **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** - Complete setup and configuration
+2. **[GITOPS-TECHNICAL-GUIDE.md](GITOPS-TECHNICAL-GUIDE.md)** - Deep technical implementation
+3. **[OPERATIONS-GUIDE.md](OPERATIONS-GUIDE.md)** - Daily operations and troubleshooting
 
-### For Data Engineers
-1. [Quick Start Guide](../README.md) - Get the platform running
-2. [MLOps Workflows](README.md#the-end-to-end-vision) - Understand pipeline patterns
-3. [Component Integration](README.md#part-5-weaving-the-fabric-integrating-the-platform-components) - Learn service connections
+### For Data Scientists & ML Engineers
+1. **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** - Platform capabilities and workflow
+2. **[DEMO-GUIDE.md](DEMO-GUIDE.md)** - Practical ML pipeline examples
+3. **[PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)** - Understanding component interactions
 
 ### For DevOps Teams
-1. [Team Maintainability Features](ANSIBLE-DEPLOYMENT-GUIDE.md#team-maintainability-features) - Collaboration tools
-2. [Observability Stack](ANSIBLE-DEPLOYMENT-GUIDE.md#observability-stack) - Monitoring setup
-3. [Development Workflow](ANSIBLE-DEPLOYMENT-GUIDE.md#development-workflow) - Best practices
+1. **[GITOPS-TECHNICAL-GUIDE.md](GITOPS-TECHNICAL-GUIDE.md)** - GitOps implementation patterns
+2. **[OPERATIONS-GUIDE.md](OPERATIONS-GUIDE.md)** - Monitoring, alerting, and maintenance
+3. **[OPTIMIZATION-SUMMARY.md](OPTIMIZATION-SUMMARY.md)** - Performance tuning
+
+## 🔄 Quick Navigation
+
+| Need to... | See Document | Priority |
+|------------|--------------|----------|
+| **Get started with the platform** | **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** | 🌟 Essential |
+| Set up GitOps deployment | [MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md) | 🌟 Essential |
+| Understand GitOps implementation | [GITOPS-TECHNICAL-GUIDE.md](GITOPS-TECHNICAL-GUIDE.md) | 🔧 Technical |
+| Operate platform daily | [OPERATIONS-GUIDE.md](OPERATIONS-GUIDE.md) | 🔧 Technical |
+| Run a demo workflow | [DEMO-GUIDE.md](DEMO-GUIDE.md) | 🎯 Practical |
+| Understand architecture | [PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md) | 📚 Reference |
+| Clean up resources | [CLEANUP-GUIDE.md](CLEANUP-GUIDE.md) | 🛠️ Maintenance |
+| Optimize performance | [OPTIMIZATION-SUMMARY.md](OPTIMIZATION-SUMMARY.md) | 🛠️ Maintenance |
+
+## 📊 Documentation Categories
+
+### 🌟 Essential (Start Here)
+- **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** - Your starting point for everything
+
+### 🔧 Technical Implementation
+- **[GITOPS-TECHNICAL-GUIDE.md](GITOPS-TECHNICAL-GUIDE.md)** - Deep dive into GitOps
+- **[OPERATIONS-GUIDE.md](OPERATIONS-GUIDE.md)** - Operational procedures
+
+### 🎯 Practical Guides
+- **[DEMO-GUIDE.md](DEMO-GUIDE.md)** - Hands-on examples
+
+### 📚 Reference Material
+- **[PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)** - Architecture details
+- **[GITOPS-MIGRATION-COMPLETE.md](GITOPS-MIGRATION-COMPLETE.md)** - Implementation history
+
+### 🛠️ Maintenance
+- **[CLEANUP-GUIDE.md](CLEANUP-GUIDE.md)** - Cleanup procedures
+- **[OPTIMIZATION-SUMMARY.md](OPTIMIZATION-SUMMARY.md)** - Performance tips
+
+## � Recommended Reading Path
+
+### For First-Time Users
+1. 📖 **[MLOPS-PLATFORM-GUIDE.md](MLOPS-PLATFORM-GUIDE.md)** - Read the overview and setup guide
+2. 🛠️ Follow the step-by-step setup instructions
+3. 🎯 **[DEMO-GUIDE.md](DEMO-GUIDE.md)** - Run the demo to see it in action
+4. 🔧 **[OPERATIONS-GUIDE.md](OPERATIONS-GUIDE.md)** - Learn daily operations
+
+### For Advanced Users
+1. 🔧 **[GITOPS-TECHNICAL-GUIDE.md](GITOPS-TECHNICAL-GUIDE.md)** - Understand the technical implementation
+2. 📚 **[PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)** - Deep dive into architecture
+3. 🛠️ **[OPTIMIZATION-SUMMARY.md](OPTIMIZATION-SUMMARY.md)** - Optimize for production
+
+## 📈 Platform Status
+
+Current deployment summary: [mlops-deployment-summary.txt](mlops-deployment-summary.txt)
 
 ---
 
-## 📞 Support
+## � Key Features Covered in Documentation
 
-For additional help or questions:
-- Review the comprehensive guides above
-- Check the deployment logs: `ansible.log`
-- Validate your setup: `./deploy.sh validate`
-- Monitor platform status: `./deploy.sh status`
+- ✅ **GitOps-driven infrastructure** with Flux CD
+- ✅ **Complete MLOps pipeline** from data to deployment
+- ✅ **Cloud-native architecture** on Kubernetes
+- ✅ **Operator-based management** for stateful services
+- ✅ **End-to-end security** and RBAC
+- ✅ **Comprehensive monitoring** and observability
+- ✅ **Production-ready configurations** and best practices
 
-This documentation structure provides a clear path for understanding, deploying, and maintaining the MLOps platform.
+For additional help or questions, please refer to the main [README.md](../README.md) or create an issue in the repository.
