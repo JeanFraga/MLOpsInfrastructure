@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-scheduler
+  namespace: orchestration
+  labels:
+    app: airflow
+    component: scheduler
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow-worker
+  namespace: processing-jobs
+  labels:
+    app: airflow
+    component: worker
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-job-runner
+  namespace: processing-jobs
+  labels:
+    app: spark
+    component: job-runner
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flink-job-runner
+  namespace: processing-jobs
+  labels:
+    app: flink
+    component: job-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: processing-jobs
+  name: job-executor
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["sparkoperator.k8s.io"]
+  resources: ["sparkapplications"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: ["flink.apache.org"]
+  resources: ["flinkdeployments"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-worker-job-executor
+  namespace: processing-jobs
+subjects:
+- kind: ServiceAccount
+  name: airflow-worker
+  namespace: processing-jobs
+roleRef:
+  kind: Role
+  name: job-executor
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-job-runner-executor
+  namespace: processing-jobs
+subjects:
+- kind: ServiceAccount
+  name: spark-job-runner
+  namespace: processing-jobs
+roleRef:
+  kind: Role
+  name: job-executor
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flink-job-runner-executor
+  namespace: processing-jobs
+subjects:
+- kind: ServiceAccount
+  name: flink-job-runner
+  namespace: processing-jobs
+roleRef:
+  kind: Role
+  name: job-executor
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-operators
+  labels:
+    name: platform-operators
+    tier: platform
+    component: operators
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-plane
+  labels:
+    name: data-plane
+    tier: data
+    component: storage-messaging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orchestration
+  labels:
+    name: orchestration
+    tier: orchestration
+    component: airflow
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-lifecycle
+  labels:
+    name: ml-lifecycle
+    tier: ml
+    component: mlflow
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: processing-jobs
+  labels:
+    name: processing-jobs
+    tier: compute
+    component: spark-flink
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    name: observability
+    tier: platform
+    component: monitoring

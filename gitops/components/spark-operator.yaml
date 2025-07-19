@@ -1,0 +1,41 @@
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: spark-operator
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: https://kubeflow.github.io/spark-operator
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: spark-operator
+  namespace: flux-system
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: spark-operator
+      version: "1.1.27"
+      sourceRef:
+        kind: HelmRepository
+        name: spark-operator
+  targetNamespace: platform-operators
+  install:
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    serviceAccounts:
+      spark:
+        create: true
+        name: "spark-operator"
+    webhook:
+      enable: true
+    metrics:
+      enable: true
+    sparkJobNamespace: "processing-jobs"

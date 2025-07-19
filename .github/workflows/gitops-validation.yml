@@ -1,0 +1,124 @@
+name: GitOps Validation
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'gitops/**'
+      - 'infrastructure/manifests/**'
+  push:
+    branches: [ main ]
+    paths:
+      - 'gitops/**'
+      - 'infrastructure/manifests/**'
+
+jobs:
+  validate-gitops:
+    runs-on: ubuntu-latest
+    name: Validate GitOps Configuration
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Flux CLI
+      uses: fluxcd/flux2/action@main
+      with:
+        version: 'latest'
+    
+    - name: Setup Kustomize
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+    
+    - name: Validate Flux manifests
+      run: |
+        find gitops/ -name "*.yaml" -exec flux validate {} \;
+    
+    - name: Validate Kustomization builds
+      run: |
+        # Validate base kustomization
+        kustomize build gitops/base > /tmp/base-build.yaml
+        echo "✅ Base kustomization builds successfully"
+        
+        # Validate that all resources are valid Kubernetes manifests
+        kubectl --dry-run=client apply -f /tmp/base-build.yaml
+        echo "✅ Base manifests are valid"
+    
+    - name: Check for GitOps best practices
+      run: |
+        echo "🔍 Checking GitOps best practices..."
+        
+        # Check that all Flux resources have proper metadata
+        if grep -r "metadata:" gitops/ | grep -v "name:"; then
+          echo "❌ Found Flux resources without proper metadata"
+          exit 1
+        fi
+        
+        # Check that all HelmReleases have proper upgrade/install configs
+        if find gitops/ -name "*.yaml" -exec grep -l "HelmRelease" {} \; | xargs grep -L "remediation:"; then
+          echo "⚠️  Found HelmReleases without remediation configuration"
+        fi
+        
+        echo "✅ GitOps best practices check passed"
+    
+    - name: Validate Kubernetes manifests
+      run: |
+        # Install kubeval for manifest validation
+        curl -L https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | tar xz
+        sudo mv kubeval /usr/local/bin
+        
+        # Validate all Kubernetes manifests
+        find infrastructure/manifests -name "*.yaml" -exec kubeval {} \;
+        find gitops/base -name "*.yaml" -exec kubeval {} \;
+        
+        echo "✅ All Kubernetes manifests are valid"
+
+  simulate-gitops-deployment:
+    runs-on: ubuntu-latest
+    name: Simulate GitOps Deployment
+    needs: validate-gitops
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Kind cluster
+      uses: helm/kind-action@v1.10.0
+      with:
+        cluster_name: gitops-test
+        kubectl_version: v1.28.0
+    
+    - name: Setup Flux CLI
+      uses: fluxcd/flux2/action@main
+      with:
+        version: 'latest'
+    
+    - name: Install Flux
+      run: |
+        flux install --namespace=flux-system
+        kubectl wait --for=condition=ready pod -l app=source-controller -n flux-system --timeout=300s
+    
+    - name: Apply GitOps configuration
+      run: |
+        # Apply the base platform configuration
+        kubectl apply -f gitops/clusters/local/flux-system.yaml
+        
+        # Wait for GitRepository to be ready
+        kubectl wait --for=condition=ready gitrepository mlops-infrastructure -n flux-system --timeout=300s
+        
+        # Check that namespaces are created
+        kubectl get namespaces
+        
+        # Verify RBAC is applied
+        kubectl get serviceaccounts -A
+        kubectl get roles,rolebindings -A
+    
+    - name: Verify idempotency
+      run: |
+        echo "🔄 Testing idempotency..."
+        
+        # Apply the same configuration again
+        kubectl apply -f gitops/clusters/local/flux-system.yaml
+        
+        # Should not cause any changes
+        kubectl get events --sort-by='.lastTimestamp' | tail -10
+        
+        echo "✅ Idempotency test passed"

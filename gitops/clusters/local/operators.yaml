@@ -1,0 +1,29 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: mlops-operators
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: "./gitops/components"
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: mlops-infrastructure
+  timeout: 10m
+  wait: true
+  dependsOn:
+    - name: mlops-platform-base
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: strimzi-cluster-operator
+      namespace: platform-operators
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: minio-operator
+      namespace: platform-operators
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: spark-operator
+      namespace: platform-operators
