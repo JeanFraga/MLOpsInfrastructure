@@ -1,0 +1,52 @@
+# MLflow Values for Helm Deployment
+# This configuration deploys MLflow with external PostgreSQL backend and MinIO artifact store
+
+# PostgreSQL configuration - DISABLE bundled postgres when using external
+postgresql:
+  enabled: false
+
+# Resource allocation
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+# Environment variables for S3/MinIO integration (as object)
+extraEnvVars:
+  MLFLOW_S3_ENDPOINT_URL: "http://minio.data-plane.svc.cluster.local:9000"
+  AWS_ACCESS_KEY_ID: 
+    valueFrom:
+      secretKeyRef:
+        name: minio-root-credentials
+        key: accesskey
+  AWS_SECRET_ACCESS_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: minio-root-credentials
+        key: secretkey
+
+# Backend store configuration - Use external PostgreSQL
+backendStore:
+  databaseMigration: true
+  postgres:
+    enabled: true
+    host: "mlflow-postgresql"
+    port: 5432
+    database: "mlflow"
+    user: "postgres"
+    password: "mlflow123"
+
+# Default artifact root (as object for S3/MinIO)
+artifactRoot:
+  s3:
+    enabled: true
+    bucket: "mlflow-artifacts"
+    # endpoint will be set via MLFLOW_S3_ENDPOINT_URL env var
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5000

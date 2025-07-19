@@ -1,0 +1,46 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Create Release
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        echo "## What's Changed" > CHANGELOG.md
+        git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$(git describe --tags --abbrev=0 HEAD^)...${{ github.ref_name }}" >> CHANGELOG.md
+    
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: MLOps Infrastructure ${{ github.ref_name }}
+        body_path: CHANGELOG.md
+        draft: false
+        prerelease: false
+    
+    - name: Package documentation
+      run: |
+        tar -czf mlops-infrastructure-docs-${{ github.ref_name }}.tar.gz docs/
+    
+    - name: Upload documentation
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: mlops-infrastructure-docs-${{ github.ref_name }}.tar.gz
+        asset_name: mlops-infrastructure-docs-${{ github.ref_name }}.tar.gz
+        asset_content_type: application/gzip

@@ -1,0 +1,118 @@
+# Airflow Values for Helm Deployment
+# This configuration deploys Airflow with KubernetesExecutor for MLOps platform
+
+# Executor configuration
+executor: "KubernetesExecutor"
+
+# Airflow configuration
+config:
+  core:
+    dags_are_paused_at_creation: 'false'
+    load_examples: 'false'
+    max_active_runs_per_dag: 16
+  webserver:
+    expose_config: 'true'
+  kubernetes:
+    namespace: "processing-jobs"
+    worker_container_repository: "apache/airflow"
+    worker_container_tag: "2.10.5"
+    delete_worker_pods: 'true'
+    delete_worker_pods_on_failure: 'false'
+
+# DAGs configuration (using git-sync)
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: false  # Disabled for now, we'll use the demo DAG directly
+
+# Database configuration (PostgreSQL)
+data:
+  metadataConnection:
+    user: postgres
+    pass: airflow123
+    protocol: postgresql
+    host: airflow-postgresql
+    port: 5432
+    db: airflow
+    sslmode: disable
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: "airflow123"
+    database: "airflow"
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 250m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+# Redis configuration (not needed for KubernetesExecutor but kept for consistency)
+redis:
+  enabled: false
+
+# Webserver configuration
+webserver:
+  service:
+    type: NodePort
+    ports:
+      - name: airflow-ui
+        port: 8080
+        nodePort: 30080
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# Scheduler configuration
+scheduler:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# Worker configuration
+workers:
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: "airflow"
+
+# RBAC for Kubernetes executor
+rbac:
+  create: true
+  createSCCRoleBinding: false
+
+# Flower (disabled for KubernetesExecutor)
+flower:
+  enabled: false
+
+# Additional environment variables
+env:
+  - name: AIRFLOW__KUBERNETES__NAMESPACE
+    value: "processing-jobs"
+  - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
+    value: "True"

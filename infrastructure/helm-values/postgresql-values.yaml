@@ -1,0 +1,15 @@
+# PostgreSQL Values for MLflow Backend
+auth:
+  postgresPassword: "mlflow123"
+  database: "mlflow"
+primary:
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m

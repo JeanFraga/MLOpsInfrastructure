@@ -1,0 +1,132 @@
+name: Validate Infrastructure
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  validate-yaml:
+    runs-on: ubuntu-latest
+    name: Validate YAML Files
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install yamllint
+      run: pip install yamllint
+    
+    - name: Validate YAML syntax
+      run: |
+        find . -name "*.yaml" -o -name "*.yml" | xargs yamllint -c .yamllint
+    
+    - name: Validate Kubernetes manifests
+      run: |
+        # Install kubeval
+        curl -L https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz | tar xz
+        sudo mv kubeval /usr/local/bin
+        
+        # Validate K8s manifests
+        find infrastructure/manifests -name "*.yaml" -exec kubeval {} \;
+
+  validate-helm:
+    runs-on: ubuntu-latest
+    name: Validate Helm Charts
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+    
+    - name: Lint Helm values
+      run: |
+        for values_file in infrastructure/helm-values/*.yaml; do
+          echo "Validating $values_file"
+          helm lint --values $values_file infrastructure/helm-values/
+        done
+
+  validate-python:
+    runs-on: ubuntu-latest
+    name: Validate Python Code
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort pytest
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f src/demo/requirements.txt ]; then pip install -r src/demo/requirements.txt; fi
+    
+    - name: Lint with flake8
+      run: |
+        flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Check code formatting with black
+      run: black --check src/
+    
+    - name: Check import sorting with isort
+      run: isort --check-only src/
+    
+    - name: Run tests
+      run: |
+        if [ -d "tests" ]; then
+          python -m pytest tests/ -v
+        else
+          echo "No tests directory found, skipping tests"
+        fi
+
+  validate-ansible:
+    runs-on: ubuntu-latest
+    name: Validate Ansible Playbooks
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install Ansible
+      run: |
+        pip install ansible ansible-lint
+    
+    - name: Validate Ansible playbook
+      run: |
+        ansible-playbook --syntax-check infrastructure/ansible-playbook.yml
+    
+    - name: Lint Ansible playbook
+      run: |
+        ansible-lint infrastructure/ansible-playbook.yml
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'

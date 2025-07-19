@@ -1,0 +1,102 @@
+name: Deploy MLOps Infrastructure
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  KUBECONFIG: ${{ secrets.KUBECONFIG }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    name: Deploy to ${{ github.event.inputs.environment || 'staging' }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: '1.28.0'
+    
+    - name: Install Ansible
+      run: |
+        pip install ansible kubernetes
+    
+    - name: Create kubeconfig
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+        chmod 600 ~/.kube/config
+    
+    - name: Verify cluster connection
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+    
+    - name: Deploy with Ansible
+      run: |
+        cd infrastructure
+        ansible-playbook -i inventory.ini ansible-playbook.yml
+      env:
+        ANSIBLE_HOST_KEY_CHECKING: False
+    
+    - name: Run post-deployment validation
+      run: |
+        chmod +x scripts/validate-setup.sh
+        ./scripts/validate-setup.sh
+    
+    - name: Run health checks
+      run: |
+        chmod +x scripts/cluster-health-check.sh
+        ./scripts/cluster-health-check.sh
+    
+    - name: Generate deployment summary
+      run: |
+        echo "## Deployment Summary" > deployment-summary.md
+        echo "**Environment:** ${{ github.event.inputs.environment || 'staging' }}" >> deployment-summary.md
+        echo "**Commit:** ${{ github.sha }}" >> deployment-summary.md
+        echo "**Timestamp:** $(date)" >> deployment-summary.md
+        echo "**Deployed by:** ${{ github.actor }}" >> deployment-summary.md
+        echo "" >> deployment-summary.md
+        echo "### Component Status" >> deployment-summary.md
+        kubectl get pods -A | grep -E "(kafka|spark|flink|airflow|mlflow|minio)" >> deployment-summary.md
+    
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-summary
+        path: deployment-summary.md
+    
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🚨 Deployment failed! Please check the workflow logs for details.'
+          });

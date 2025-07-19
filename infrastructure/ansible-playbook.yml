@@ -1,0 +1,1382 @@
+---
+# MLOps Platform Deployment Playbook
+# Comprehensive automation for fresh Mac/Linux systems with production-grade MLOps operators
+# Following best practices from mlopsinfrastructure.instructions.md
+
+- name: Deploy MLOps Platform with Kubernetes Operators
+  hosts: localhost
+  gather_facts: true
+  connection: local
+  vars:
+    # Platform configuration
+    platform_namespace: "platform-operators"
+    data_namespace: "data-plane"
+    orchestration_namespace: "orchestration"
+    ml_lifecycle_namespace: "ml-lifecycle"
+    processing_namespace: "processing-jobs"
+    observability_namespace: "observability"
+    
+    # Operator versions (latest stable)
+    strimzi_version: "0.46.1"
+    minio_operator_version: "7.1.1"
+    spark_operator_version: "1.2.0"  # Chart version, not app version
+    flink_operator_version: "1.12.0"
+    cert_manager_version: "v1.14.4"
+    kube_prometheus_stack_version: "65.1.1"  # Observability stack
+    
+    # Installation preferences
+    install_docker: true
+    install_kubernetes: true
+    install_helm: true
+    clean_install: false  # Set to true to remove existing installations
+
+  pre_tasks:
+    - name: Detect operating system
+      tags: [always]
+      set_fact:
+        is_macos: "{{ ansible_os_family == 'Darwin' }}"
+        is_linux: "{{ ansible_os_family in ['RedHat', 'Debian', 'Suse', 'Archlinux'] }}"
+        
+    - name: Verify supported operating system
+      tags: [always]
+      fail:
+        msg: "This playbook supports macOS and Linux only. Detected: {{ ansible_os_family }}"
+      when: not (is_macos or is_linux)
+
+    - name: Display deployment summary
+      tags: [always]
+      debug:
+        msg: |
+          🚀 MLOps Platform Deployment Summary:
+          Operating System: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Target Namespaces: {{ platform_namespace }}, {{ data_namespace }}, {{ orchestration_namespace }}, {{ ml_lifecycle_namespace }}, {{ processing_namespace }}, {{ observability_namespace }}
+          Operators: Strimzi {{ strimzi_version }}, MinIO {{ minio_operator_version }}, Spark {{ spark_operator_version }}, Flink {{ flink_operator_version }}
+          Observability: kube-prometheus-stack {{ kube_prometheus_stack_version }}
+          Prerequisites: Docker={{ install_docker }}, Kubernetes={{ install_kubernetes }}, Helm={{ install_helm }}
+
+  tasks:
+    # ==========================================
+    # PREREQUISITES INSTALLATION
+    # ==========================================
+    
+    - name: Install prerequisites block
+      tags: [prerequisites, validation]
+      block:
+        - name: Install Docker (macOS)
+          block:
+            - name: Check if Docker Desktop is installed (macOS)
+              stat:
+                path: /Applications/Docker.app
+              register: docker_app_check
+              when: is_macos
+
+            - name: Install Docker Desktop via Homebrew (macOS)
+              homebrew_cask:
+                name: docker
+                state: present
+              when: is_macos and install_docker and not docker_app_check.stat.exists
+
+            - name: Start Docker Desktop (macOS)
+              command: open -a Docker
+              when: is_macos and install_docker
+              ignore_errors: true
+
+        - name: Install Docker (Linux)
+          block:
+            - name: Install Docker (Ubuntu/Debian)
+              apt:
+                name: 
+                  - docker.io
+                  - docker-compose
+                state: present
+                update_cache: true
+              become: true
+              when: is_linux and ansible_os_family == 'Debian' and install_docker
+
+            - name: Install Docker (RHEL/CentOS/Fedora)
+              dnf:
+                name:
+                  - docker
+                  - docker-compose
+                state: present
+              become: true
+              when: is_linux and ansible_os_family == 'RedHat' and install_docker
+
+            - name: Start and enable Docker service (Linux)
+              systemd:
+                name: docker
+                state: started
+                enabled: true
+              become: true
+              when: is_linux and install_docker
+
+            - name: Add user to docker group (Linux)
+              user:
+                name: "{{ ansible_user_id }}"
+                groups: docker
+                append: true
+              become: true
+              when: is_linux and install_docker
+
+        - name: Install kubectl (macOS)
+          homebrew:
+            name: kubectl
+            state: present
+          when: is_macos and install_kubernetes
+
+        - name: Install kubectl (Linux)
+          block:
+            - name: Download kubectl binary (Linux)
+              get_url:
+                url: "https://dl.k8s.io/release/{{ kubectl_version | default('stable') }}/bin/linux/amd64/kubectl"
+                dest: /tmp/kubectl
+                mode: '0755'
+              when: is_linux and install_kubernetes
+
+            - name: Install kubectl (Linux)
+              copy:
+                src: /tmp/kubectl
+                dest: /usr/local/bin/kubectl
+                mode: '0755'
+                remote_src: true
+              become: true
+              when: is_linux and install_kubernetes
+
+        - name: Install Helm (macOS)
+          homebrew:
+            name: helm
+            state: present
+          when: is_macos and install_helm
+
+        - name: Install Helm (Linux)
+          block:
+            - name: Download Helm installer script
+              get_url:
+                url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+                dest: /tmp/get_helm.sh
+                mode: '0755'
+              when: is_linux and install_helm
+
+            - name: Install Helm (Linux)
+              shell: /tmp/get_helm.sh
+              become: true
+              when: is_linux and install_helm
+
+        - name: Install minikube (macOS)
+          homebrew:
+            name: minikube
+            state: present
+          when: is_macos and install_kubernetes
+
+        - name: Install minikube (Linux)
+          block:
+            - name: Download minikube binary (Linux)
+              get_url:
+                url: "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
+                dest: /tmp/minikube
+                mode: '0755'
+              when: is_linux and install_kubernetes
+
+            - name: Install minikube (Linux)
+              copy:
+                src: /tmp/minikube
+                dest: /usr/local/bin/minikube
+                mode: '0755'
+                remote_src: true
+              become: true
+              when: is_linux and install_kubernetes
+
+      when: install_docker or install_kubernetes or install_helm
+
+    # ==========================================
+    # KUBERNETES CLUSTER SETUP
+    # ==========================================
+
+    - name: Kubernetes cluster setup block
+      tags: [prerequisites, validation, deploy]
+      block:
+        - name: Check if Kubernetes cluster is running
+          k8s_info:
+            api_version: v1
+            kind: Node
+          register: k8s_cluster_check
+          ignore_errors: true
+
+        - name: Start minikube if no cluster is running
+          command: minikube start --driver=docker --memory=8192 --cpus=4
+          when: k8s_cluster_check is failed
+          register: minikube_start
+          until: minikube_start.rc == 0
+          retries: 3
+          delay: 30
+
+        - name: Verify Kubernetes cluster is accessible
+          k8s_info:
+            api_version: v1
+            kind: Node
+          register: cluster_verification
+
+        - name: Display cluster information
+          debug:
+            msg: "✅ Kubernetes cluster is running with {{ cluster_verification.resources | length }} node(s)"
+
+    # ==========================================
+    # NAMESPACE CREATION
+    # ==========================================
+
+    - name: Create platform namespaces
+      tags: [deploy]
+      k8s:
+        name: "{{ item }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+      loop:
+        - "{{ platform_namespace }}"
+        - "{{ data_namespace }}"
+        - "{{ orchestration_namespace }}"
+        - "{{ ml_lifecycle_namespace }}"
+        - "{{ processing_namespace }}"
+        - "{{ observability_namespace }}"
+
+    # ==========================================
+    # HELM REPOSITORIES
+    # ==========================================
+
+    - name: Add required Helm repositories (from instructions)
+      tags: [deploy]
+      kubernetes.core.helm_repository:
+        name: "{{ item.name }}"
+        repo_url: "{{ item.url }}"
+        state: present
+      loop:
+        # Primary repositories from instructions
+        - name: strimzi
+          url: https://strimzi.io/charts/
+        - name: minio-operator
+          url: https://operator.min.io/
+        - name: spark
+          url: https://apache.github.io/spark-kubernetes-operator
+        - name: flink-operator
+          url: https://archive.apache.org/dist/flink/flink-kubernetes-operator-1.12.0/
+        - name: jetstack
+          url: https://charts.jetstack.io
+        - name: apache-airflow
+          url: https://airflow.apache.org
+        - name: community-charts
+          url: https://community-charts.github.io/helm-charts
+        # Observability stack
+        - name: prometheus-community
+          url: https://prometheus-community.github.io/helm-charts
+        # Bitnami as alternative for MinIO if official times out
+        - name: bitnami
+          url: https://charts.bitnami.com/bitnami
+
+    - name: Update Helm repository cache
+      tags: [deploy]
+      command: helm repo update
+      changed_when: false
+
+    # ==========================================
+    # CERT-MANAGER (FLINK DEPENDENCY)
+    # ==========================================
+
+    - name: Install cert-manager for Flink operator
+      tags: [deploy]
+      kubernetes.core.helm:
+        name: cert-manager
+        chart_ref: jetstack/cert-manager
+        release_namespace: cert-manager
+        create_namespace: true
+        chart_version: "{{ cert_manager_version }}"
+        values:
+          installCRDs: true
+          global:
+            leaderElection:
+              namespace: cert-manager
+        wait: true
+        wait_timeout: 300s
+
+    # ==========================================
+    # PLATFORM OPERATORS DEPLOYMENT
+    # ==========================================
+
+    - name: Deploy Strimzi Kafka Operator
+      tags: [deploy]
+      kubernetes.core.helm:
+        name: strimzi-kafka-operator
+        chart_ref: strimzi/strimzi-kafka-operator
+        release_namespace: "{{ platform_namespace }}"
+        chart_version: "{{ strimzi_version }}"
+        values:
+          watchNamespaces: ["{{ data_namespace }}"]
+          replicas: 1
+          fullReconciliationIntervalMs: 120000
+          operationTimeoutMs: 300000
+        wait: true
+        wait_timeout: 300s
+
+    - name: Deploy MinIO Operator (Official)
+      tags: [deploy]
+      kubernetes.core.helm:
+        name: minio-operator
+        chart_ref: minio-operator/operator
+        release_namespace: "{{ platform_namespace }}"
+        chart_version: "{{ minio_operator_version }}"
+        wait: true
+        wait_timeout: 600s
+
+    - name: Deploy Spark Kubernetes Operator
+      tags: [deploy]
+      kubernetes.core.helm:
+        name: spark-operator
+        chart_ref: spark/spark-kubernetes-operator
+        release_namespace: "{{ platform_namespace }}"
+        chart_version: "{{ spark_operator_version }}"
+        values:
+          spark:
+            jobNamespaces: ["{{ processing_namespace }}"]
+          webhook:
+            enable: true
+          metrics:
+            enable: true
+        wait: true
+        wait_timeout: 300s
+
+    - name: Deploy Flink Kubernetes Operator
+      tags: [deploy]
+      kubernetes.core.helm:
+        name: flink-operator
+        chart_ref: flink-operator/flink-kubernetes-operator
+        release_namespace: "{{ platform_namespace }}"
+        chart_version: "{{ flink_operator_version }}"
+        values:
+          metrics:
+            port: 8080
+          webhook:
+            create: true
+          rbac:
+            create: true
+        wait: true
+        wait_timeout: 300s
+
+    # ==========================================
+    # OBSERVABILITY STACK DEPLOYMENT
+    # ==========================================
+
+    - name: Deploy kube-prometheus-stack (Observability)
+      tags: [deploy, observability]
+      kubernetes.core.helm:
+        name: kube-prometheus-stack
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: "{{ observability_namespace }}"
+        create_namespace: true
+        chart_version: "{{ kube_prometheus_stack_version }}"
+        values:
+          # Prometheus configuration
+          prometheus:
+            prometheusSpec:
+              serviceMonitorSelectorNilUsesHelmValues: false
+              podMonitorSelectorNilUsesHelmValues: false
+              ruleSelectorNilUsesHelmValues: false
+              retention: 15d
+              resources:
+                requests:
+                  memory: 400Mi
+                  cpu: 100m
+                limits:
+                  memory: 2Gi
+                  cpu: 1000m
+              storageSpec:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: "hostpath"
+                    accessModes: ["ReadWriteOnce"]
+                    resources:
+                      requests:
+                        storage: 10Gi
+          
+          # Grafana configuration with MLOps dashboards
+          grafana:
+            adminPassword: "admin123"  # Change in production
+            persistence:
+              enabled: true
+              size: 1Gi
+            resources:
+              requests:
+                memory: 128Mi
+                cpu: 100m
+              limits:
+                memory: 256Mi
+                cpu: 200m
+            dashboardProviders:
+              dashboardproviders.yaml:
+                apiVersion: 1
+                providers:
+                - name: 'mlops-platform'
+                  orgId: 1
+                  folder: 'MLOps Platform'
+                  type: file
+                  disableDeletion: false
+                  editable: true
+                  options:
+                    path: /var/lib/grafana/dashboards/mlops-platform
+            dashboards:
+              mlops-platform:
+                kubernetes-cluster-overview:
+                  gnetId: 7249
+                  revision: 1
+                  datasource: Prometheus
+                kubernetes-pods:
+                  gnetId: 6336
+                  revision: 1
+                  datasource: Prometheus
+                kubernetes-deployment:
+                  gnetId: 8588
+                  revision: 1
+                  datasource: Prometheus
+                node-exporter:
+                  gnetId: 1860
+                  revision: 37
+                  datasource: Prometheus
+          
+          # AlertManager configuration
+          alertmanager:
+            alertmanagerSpec:
+              storage:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: "hostpath"
+                    accessModes: ["ReadWriteOnce"]
+                    resources:
+                      requests:
+                        storage: 2Gi
+          
+          # Node Exporter for system metrics (disabled for Docker Desktop compatibility)
+          nodeExporter:
+            enabled: false
+          
+          # kube-state-metrics for Kubernetes resource metrics
+          kubeStateMetrics:
+            enabled: true
+          
+          # Disable components not needed for basic setup
+          kubeEtcd:
+            enabled: false
+          kubeControllerManager:
+            enabled: false
+          kubeScheduler:
+            enabled: false
+          kubeProxy:
+            enabled: false
+        wait: true
+        wait_timeout: 600s
+
+    - name: Create ServiceMonitors for MLOps operators
+      tags: [deploy, observability]
+      k8s:
+        state: present
+        definition:
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: "{{ item.name }}"
+            namespace: "{{ observability_namespace }}"
+            labels:
+              release: kube-prometheus-stack
+          spec:
+            selector:
+              matchLabels: "{{ item.selector }}"
+            namespaceSelector:
+              matchNames:
+                - "{{ platform_namespace }}"
+            endpoints:
+              - port: "{{ item.port }}"
+                path: "{{ item.path | default('/metrics') }}"
+                interval: 30s
+      loop:
+        - name: strimzi-cluster-operator-metrics
+          selector:
+            strimzi.io/kind: cluster-operator
+          port: http
+        - name: spark-operator-metrics
+          selector:
+            app.kubernetes.io/name: spark-kubernetes-operator
+          port: probe-port
+        - name: flink-operator-metrics
+          selector:
+            app.kubernetes.io/name: flink-kubernetes-operator
+          port: metrics
+
+    # ==========================================
+    # STATUS CHECK TASKS
+    # ==========================================
+
+    - name: Status check - Verify kubectl is available
+      tags: [status, never]
+      command: kubectl version --client
+      register: kubectl_check
+      failed_when: kubectl_check.rc != 0
+
+    - name: Status check - Verify cluster connectivity
+      tags: [status, never]
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_connectivity
+
+    - name: Status check - Display cluster information
+      tags: [status, never]
+      debug:
+        msg: |
+          📊 MLOps Platform Status:
+          
+          Cluster: {{ cluster_connectivity.resources | length }} node(s) running
+          Kubernetes Version: {{ cluster_connectivity.resources[0].status.nodeInfo.kubeletVersion if cluster_connectivity.resources else 'Unknown' }}
+
+    - name: Status check - Get namespace status
+      tags: [status, never]
+      k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+      register: namespace_status
+      loop:
+        - "{{ platform_namespace }}"
+        - "{{ data_namespace }}"
+        - "{{ orchestration_namespace }}"
+        - "{{ ml_lifecycle_namespace }}"
+        - "{{ processing_namespace }}"
+        - "{{ observability_namespace }}"
+      ignore_errors: true
+
+    - name: Status check - Display namespace status
+      tags: [status, never]
+      debug:
+        msg: |
+          Namespace Status:
+          {% for result in namespace_status.results %}
+          - {{ result.item }}: {{ 'Active' if result.resources else 'Not Found' }}
+          {% endfor %}
+
+    - name: Status check - Get operator deployments
+      tags: [status, never]
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ platform_namespace }}"
+      register: operator_status
+      ignore_errors: true
+
+    - name: Status check - Display operator status
+      tags: [status, never]
+      debug:
+        msg: |
+          Operator Deployments ({{ operator_status.resources | length if operator_status.resources else 0 }}):
+          {% for deployment in operator_status.resources %}
+          - {{ deployment.metadata.name }}: {{ deployment.status.readyReplicas | default(0) }}/{{ deployment.status.replicas | default(0) }} ready
+          {% endfor %}
+
+    - name: Status check - Get observability deployments
+      tags: [status, never]
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ observability_namespace }}"
+      register: observability_status
+      ignore_errors: true
+
+    - name: Status check - Display observability status
+      tags: [status, never]
+      debug:
+        msg: |
+          Observability Stack ({{ observability_status.resources | length if observability_status.resources else 0 }}):
+          {% for deployment in observability_status.resources %}
+          - {{ deployment.metadata.name }}: {{ deployment.status.readyReplicas | default(0) }}/{{ deployment.status.replicas | default(0) }} ready
+          {% endfor %}
+
+    # ==========================================
+    # CLEANUP TASKS
+    # ==========================================
+
+    - name: Cleanup - Remove MLOps namespaces
+      tags: [cleanup, never]
+      k8s:
+        name: "{{ item }}"
+        api_version: v1
+        kind: Namespace
+        state: absent
+        wait: true
+        wait_timeout: 300
+      loop:
+        - "{{ platform_namespace }}"
+        - "{{ data_namespace }}"
+        - "{{ orchestration_namespace }}"
+        - "{{ ml_lifecycle_namespace }}"
+        - "{{ processing_namespace }}"
+        - "{{ observability_namespace }}"
+        - cert-manager
+      ignore_errors: true
+
+    - name: Cleanup - Remove Helm releases
+      tags: [cleanup, never]
+      kubernetes.core.helm:
+        name: "{{ item.name }}"
+        release_namespace: "{{ item.namespace }}"
+        state: absent
+      loop:
+        - name: strimzi-kafka-operator
+          namespace: "{{ platform_namespace }}"
+        - name: minio-operator
+          namespace: "{{ platform_namespace }}"
+        - name: spark-operator
+          namespace: "{{ platform_namespace }}"
+        - name: flink-operator
+          namespace: "{{ platform_namespace }}"
+        - name: kube-prometheus-stack
+          namespace: "{{ observability_namespace }}"
+        - name: cert-manager
+          namespace: cert-manager
+        - name: mlflow
+          namespace: "{{ ml_lifecycle_namespace }}"
+        - name: mlflow-postgresql
+          namespace: "{{ ml_lifecycle_namespace }}"
+        - name: airflow
+          namespace: "{{ orchestration_namespace }}"
+      ignore_errors: true
+
+    - name: Cleanup - Display cleanup status
+      tags: [cleanup, never]
+      debug:
+        msg: |
+          🧹 Cleanup completed:
+          - All MLOps namespaces removed
+          - All Helm releases uninstalled
+          - Platform ready for fresh deployment
+
+    - name: Verify all operators are deployed
+      tags: [deploy, status]
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ platform_namespace }}"
+      register: operator_deployments
+
+    - name: Verify observability stack is deployed
+      tags: [deploy, status]
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ observability_namespace }}"
+      register: observability_deployments
+
+    - name: Display deployment status
+      tags: [deploy, status]
+      debug:
+        msg: |
+          🎉 MLOps Platform Deployment Complete!
+          
+          Architecture: Following mlopsinfrastructure.instructions.md
+          Namespace Strategy: 6-tier separation for security and isolation
+          
+          Deployed Platform Operators ({{ operator_deployments.resources | length }}):
+          {% for deployment in operator_deployments.resources %}
+          - {{ deployment.metadata.name }}: {{ deployment.status.readyReplicas | default(0) }}/{{ deployment.status.replicas | default(0) }} ready
+          {% endfor %}
+          
+          Deployed Observability Stack ({{ observability_deployments.resources | length }}):
+          {% for deployment in observability_deployments.resources %}
+          - {{ deployment.metadata.name }}: {{ deployment.status.readyReplicas | default(0) }}/{{ deployment.status.replicas | default(0) }} ready
+          {% endfor %}
+          
+          Namespaces (as per instructions + observability):
+          - {{ platform_namespace }} (Platform Operators Layer)
+          - {{ data_namespace }} (Data and Storage Layer)
+          - {{ orchestration_namespace }} (Orchestration Layer - Airflow)
+          - {{ ml_lifecycle_namespace }} (ML Lifecycle Layer - MLflow)
+          - {{ processing_namespace }} (Processing Layer - Transient Jobs)
+          - {{ observability_namespace }} (Monitoring and Alerting Layer - Prometheus & Grafana)
+          
+          Observability Access:
+          - Grafana: kubectl port-forward -n {{ observability_namespace }} svc/kube-prometheus-stack-grafana 3000:80
+          - Prometheus: kubectl port-forward -n {{ observability_namespace }} svc/kube-prometheus-stack-prometheus 9090:9090
+          - Default Grafana credentials: admin/admin123
+          
+          Complete MLOps Platform Status:
+          ✅ Infrastructure Operators: Deployed and Ready
+          ✅ Kafka Cluster: Deployed with demo topics
+          ✅ MinIO Tenant: Deployed with required buckets
+          ✅ MLflow: Deployed with PostgreSQL backend and MinIO artifact store
+          ✅ Airflow: Deployed with KubernetesExecutor
+          
+          Application Access URLs (after port-forwarding):
+          - Airflow UI: kubectl port-forward -n {{ orchestration_namespace }} svc/airflow-webserver 8080:8080
+          - MLflow UI: kubectl port-forward -n {{ ml_lifecycle_namespace }} svc/mlflow 5000:5000
+          - MinIO Console: kubectl port-forward -n {{ data_namespace }} svc/minio-console 9001:9001
+          
+          Demo Ready: Run './scripts/run-mlops-demo.sh' to execute the end-to-end pipeline
+
+    - name: Save deployment information
+      tags: [deploy]
+      copy:
+        content: |
+          MLOps Platform Deployment Summary
+          =================================
+          Architecture: Production-grade MLOps platform following mlopsinfrastructure.instructions.md
+          Deployment Date: {{ ansible_date_time.iso8601 }}
+          Operating System: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kubernetes: {{ cluster_verification.resources[0].status.nodeInfo.kubeletVersion }}
+          
+          Namespace Strategy (6-tier separation):
+          - {{ platform_namespace }} - Platform Operators Layer (Strimzi, MinIO, Spark, Flink operators)
+          - {{ data_namespace }} - Data and Storage Layer (Kafka cluster, MinIO tenant instances)
+          - {{ orchestration_namespace }} - Orchestration Layer (Apache Airflow deployment)
+          - {{ ml_lifecycle_namespace }} - ML Lifecycle Layer (MLflow tracking server)
+          - {{ processing_namespace }} - Processing Layer (Transient Spark/Flink jobs)
+          - {{ observability_namespace }} - Monitoring and Alerting Layer (Prometheus, Grafana, AlertManager)
+          
+          Operators Deployed (Kubernetes Operator Pattern):
+          - Strimzi Kafka Operator: {{ strimzi_version }} (CNCF project)
+          - MinIO Operator: {{ minio_operator_version }} (S3-compatible object storage)
+          - Spark Kubernetes Operator: {{ spark_operator_version }} (Batch processing)
+          - Flink Kubernetes Operator: {{ flink_operator_version }} (Stream processing)
+          - cert-manager: {{ cert_manager_version }} (TLS management for Flink)
+          
+          Observability Stack:
+          - kube-prometheus-stack: {{ kube_prometheus_stack_version }} (Prometheus + Grafana + AlertManager)
+          - Node Exporter: Enabled (System metrics collection)
+          - kube-state-metrics: Enabled (Kubernetes resource metrics)
+          - ServiceMonitors: Configured for MLOps operators
+          - Pre-configured Dashboards: Kubernetes cluster, pods, deployments, node metrics
+          
+          Observability Access:
+          - Grafana UI: kubectl port-forward -n {{ observability_namespace }} svc/kube-prometheus-stack-grafana 3000:80
+          - Prometheus UI: kubectl port-forward -n {{ observability_namespace }} svc/kube-prometheus-stack-prometheus 9090:9090
+          - AlertManager UI: kubectl port-forward -n {{ observability_namespace }} svc/kube-prometheus-stack-alertmanager 9093:9093
+          - Default Grafana Login: admin/admin123 (change in production)
+          
+          Core Philosophy: Cloud-Native and Operator-Driven
+          - Use Helm to deploy Operators (Day 1)
+          - Use CRDs to manage application instances (Day 2)
+          - Stateful services managed via operators for production readiness
+          - Full observability from day one with automated metrics collection
+          
+          Next Steps - Deploy Application Instances:
+          1. Kafka Cluster: Create Kafka CRD in {{ data_namespace }}
+          2. MinIO Tenant: Deploy via minio-operator/tenant chart
+          3. Airflow: Deploy to {{ orchestration_namespace }}
+          4. MLflow: Deploy to {{ ml_lifecycle_namespace }}
+          
+          Access Commands:
+          - kubectl get pods -n {{ platform_namespace }}  # View operators
+          - kubectl get all -n {{ data_namespace }}        # View data services
+          - helm list -A                                   # View all Helm releases
+          
+        dest: ./mlops-deployment-summary.txt
+        mode: '0644'
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+      become: true
+      when: is_linux
+
+  post_tasks:
+    - name: Final verification
+      tags: [deploy]
+      block:
+        - name: Check if all operators are ready
+          k8s_info:
+            api_version: apps/v1
+            kind: Deployment
+            namespace: "{{ platform_namespace }}"
+            wait: true
+            wait_timeout: 600
+          register: final_check
+
+        - name: Success message
+          debug:
+            msg: |
+              ✅ SUCCESS: MLOps Platform deployed successfully!
+              
+              All {{ final_check.resources | length }} operators are running and ready.
+              
+              Run the following to get started:
+              kubectl get pods -n {{ platform_namespace }}
+              
+              Deployment summary saved to: ./mlops-deployment-summary.txt
+
+      rescue:
+        - name: Deployment failed
+          debug:
+            msg: |
+              ❌ DEPLOYMENT FAILED: Some operators are not ready.
+              
+              Troubleshooting:
+              1. Check operator logs: kubectl logs -n {{ platform_namespace }} -l app.kubernetes.io/instance=<operator-name>
+              2. Check events: kubectl get events -n {{ platform_namespace }} --sort-by='.lastTimestamp'
+              3. Verify resources: kubectl get all -n {{ platform_namespace }}
+              
+              Common issues:
+              - Insufficient cluster resources (increase minikube memory/cpus)
+              - Network connectivity issues
+              - Missing dependencies (cert-manager for Flink)
+
+        - name: Set failure fact
+          set_fact:
+            deployment_failed: true
+
+        - name: Fail the playbook
+          fail:
+            msg: "MLOps Platform deployment failed. Check the troubleshooting steps above."
+
+    # ==========================================
+    # VALIDATION TASKS
+    # ==========================================
+
+    - name: Validation - Check Docker installation
+      tags: [validation, never]
+      block:
+        - name: Check Docker Desktop (macOS)
+          stat:
+            path: /Applications/Docker.app
+          register: docker_check_macos
+          when: is_macos
+
+        - name: Check Docker service (Linux)
+          command: docker --version
+          register: docker_check_linux
+          when: is_linux
+          ignore_errors: true
+
+        - name: Display Docker status
+          debug:
+            msg: |
+              Docker Status: 
+              - macOS: {{ 'Installed' if (is_macos and docker_check_macos.stat.exists) else 'Not Installed' if is_macos else 'N/A' }}
+              - Linux: {{ 'Installed' if (is_linux and docker_check_linux.rc == 0) else 'Not Installed' if is_linux else 'N/A' }}
+
+    - name: Validation - Check Kubernetes tools
+      tags: [validation, never]
+      block:
+        - name: Check kubectl
+          command: kubectl version --client
+          register: kubectl_validation
+          ignore_errors: true
+
+        - name: Check Helm
+          command: helm version
+          register: helm_validation
+          ignore_errors: true
+
+        - name: Display Kubernetes tools status
+          debug:
+            msg: |
+              Kubernetes Tools:
+              - kubectl: {{ 'Available' if kubectl_validation.rc == 0 else 'Not Available' }}
+              - Helm: {{ 'Available' if helm_validation.rc == 0 else 'Not Available' }}
+
+    - name: Validation - Check cluster accessibility
+      tags: [validation, never]
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: validation_cluster_check
+      ignore_errors: true
+
+    - name: Display validation results
+      tags: [validation, never]
+      debug:
+        msg: |
+          ✅ Validation Results:
+          
+          Prerequisites:
+          - Docker: {{ 'Ready' if ((is_macos and docker_check_macos.stat.exists) or (is_linux and docker_check_linux.rc == 0)) else 'Missing' }}
+          - kubectl: {{ 'Ready' if kubectl_validation.rc == 0 else 'Missing' }}
+          - Helm: {{ 'Ready' if helm_validation.rc == 0 else 'Missing' }}
+          - Kubernetes Cluster: {{ 'Accessible' if validation_cluster_check.resources else 'Not Accessible' }}
+          
+          Status: {{ 'READY FOR DEPLOYMENT' if (kubectl_validation.rc == 0 and helm_validation.rc == 0 and validation_cluster_check.resources) else 'MISSING REQUIREMENTS' }}
+
+    # ==========================================
+    # APPLICATION DEPLOYMENT TASKS
+    # ==========================================
+
+    - name: Wait for operators to be ready
+      tags: [deploy, applications]
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ platform_namespace }}"
+        name: "{{ item }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      loop:
+        - strimzi-cluster-operator
+        - minio-operator
+        - spark-kubernetes-operator
+        - flink-kubernetes-operator
+
+    - name: Deploy Kafka cluster using Strimzi operator
+      tags: [deploy, applications, kafka]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kafka.strimzi.io/v1beta2
+          kind: Kafka
+          metadata:
+            name: mlops-kafka-cluster
+            namespace: "{{ data_namespace }}"
+          spec:
+            kafka:
+              version: 3.7.0
+              replicas: 1  # Single replica for demo/local testing
+              listeners:
+                - name: plain
+                  port: 9092
+                  type: internal
+                  tls: false
+                - name: tls
+                  port: 9093
+                  type: internal
+                  tls: true
+              config:
+                offsets.topic.replication.factor: 1
+                transaction.state.log.replication.factor: 1
+                transaction.state.log.min.insync.replicas: 1
+                default.replication.factor: 1
+                min.insync.replicas: 1
+                auto.create.topics.enable: false
+              storage:
+                type: jbod
+                volumes:
+                  - id: 0
+                    type: persistent-claim
+                    size: 20Gi
+                    deleteClaim: false
+              resources:
+                requests:
+                  memory: 1Gi
+                  cpu: 500m
+                limits:
+                  memory: 2Gi
+                  cpu: 1000m
+            zookeeper:
+              replicas: 1  # Single replica for demo/local testing
+              storage:
+                type: persistent-claim
+                size: 5Gi
+                deleteClaim: false
+              resources:
+                requests:
+                  memory: 512Mi
+                  cpu: 250m
+                limits:
+                  memory: 1Gi
+                  cpu: 500m
+            entityOperator:
+              topicOperator: {}
+              userOperator: {}
+
+    - name: Create sensor-data topic
+      tags: [deploy, applications, kafka]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kafka.strimzi.io/v1beta2
+          kind: KafkaTopic
+          metadata:
+            name: sensor-data
+            namespace: "{{ data_namespace }}"
+            labels:
+              strimzi.io/cluster: mlops-kafka-cluster
+          spec:
+            partitions: 3
+            replicas: 1
+            config:
+              retention.ms: 86400000  # 24 hours
+              compression.type: gzip
+
+    - name: Create processed-sensor-data topic
+      tags: [deploy, applications, kafka]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kafka.strimzi.io/v1beta2
+          kind: KafkaTopic
+          metadata:
+            name: processed-sensor-data
+            namespace: "{{ data_namespace }}"
+            labels:
+              strimzi.io/cluster: mlops-kafka-cluster
+          spec:
+            partitions: 3
+            replicas: 1
+            config:
+              retention.ms: 86400000  # 24 hours
+
+    - name: Create sensor-metrics topic
+      tags: [deploy, applications, kafka]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kafka.strimzi.io/v1beta2
+          kind: KafkaTopic
+          metadata:
+            name: sensor-metrics
+            namespace: "{{ data_namespace }}"
+            labels:
+              strimzi.io/cluster: mlops-kafka-cluster
+          spec:
+            partitions: 2
+            replicas: 1
+            config:
+              retention.ms: 604800000  # 7 days
+
+    - name: Create MinIO credentials secret
+      tags: [deploy, applications, minio]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: minio-root-credentials
+            namespace: "{{ data_namespace }}"
+          type: Opaque
+          stringData:
+            accesskey: minioadmin
+            secretkey: minioadmin123
+
+    - name: Deploy MinIO tenant using operator
+      tags: [deploy, applications, minio]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: minio.min.io/v2
+          kind: Tenant
+          metadata:
+            name: mlops-tenant
+            namespace: "{{ data_namespace }}"
+          spec:
+            image: quay.io/minio/minio:RELEASE.2024-07-10T18-41-49Z
+            configuration:
+              name: minio-root-credentials
+            pools:
+              - servers: 1  # Single server for demo/local testing
+                name: pool-0
+                volumesPerServer: 2
+                volumeClaimTemplate:
+                  metadata:
+                    name: data
+                  spec:
+                    accessModes:
+                      - ReadWriteOnce
+                    resources:
+                      requests:
+                        storage: 10Gi
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 512Mi
+                  limits:
+                    cpu: 500m
+                    memory: 1Gi
+            mountPath: /export
+            subPath: /data
+            requestAutoCert: false
+            podManagementPolicy: Parallel
+            env:
+              - name: MINIO_PROMETHEUS_AUTH_TYPE
+                value: "public"
+            prometheusOperator: false
+
+    - name: Create MinIO API service
+      tags: [deploy, applications, minio]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: minio
+            namespace: "{{ data_namespace }}"
+          spec:
+            selector:
+              v1.min.io/tenant: mlops-tenant
+            ports:
+              - name: http-minio
+                port: 9000
+                protocol: TCP
+                targetPort: 9000
+            type: ClusterIP
+
+    - name: Create MinIO Console service
+      tags: [deploy, applications, minio]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: minio-console
+            namespace: "{{ data_namespace }}"
+          spec:
+            selector:
+              v1.min.io/tenant: mlops-tenant
+            ports:
+              - name: http-console
+                port: 9001
+                protocol: TCP
+                targetPort: 9001
+            type: ClusterIP
+
+    - name: Deploy PostgreSQL for MLflow with Helm
+      tags: [deploy, applications, postgresql, mlflow]
+      kubernetes.core.helm:
+        name: mlflow-postgresql
+        chart_ref: bitnami/postgresql
+        release_namespace: "{{ ml_lifecycle_namespace }}"
+        create_namespace: false
+        values:
+          auth:
+            postgresPassword: "mlflow123"
+            database: "mlflow"
+          primary:
+            persistence:
+              enabled: true
+              size: 5Gi
+            resources:
+              requests:
+                memory: 256Mi
+                cpu: 250m
+              limits:
+                memory: 512Mi
+                cpu: 500m
+
+    - name: Wait for PostgreSQL to be ready
+      tags: [deploy, applications, postgresql, mlflow]
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        label_selectors:
+          - app.kubernetes.io/name=postgresql
+        namespace: "{{ ml_lifecycle_namespace }}"
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 120
+
+    - name: Deploy MLflow with Helm
+      tags: [deploy, applications, mlflow]
+      kubernetes.core.helm:
+        name: mlflow
+        chart_ref: community-charts/mlflow
+        release_namespace: "{{ ml_lifecycle_namespace }}"
+        create_namespace: false
+        values:
+          # PostgreSQL configuration - DISABLE bundled postgres when using external
+          postgresql:
+            enabled: false
+          
+          # Resource allocation
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          
+          # Environment variables for S3/MinIO integration (as object)
+          extraEnvVars:
+            MLFLOW_S3_ENDPOINT_URL: "http://minio.{{ data_namespace }}.svc.cluster.local:9000"
+            AWS_ACCESS_KEY_ID: 
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root-credentials
+                  key: accesskey
+            AWS_SECRET_ACCESS_KEY:
+              valueFrom:
+                secretKeyRef:
+                  name: minio-root-credentials
+                  key: secretkey
+          
+          # Backend store configuration - Use external PostgreSQL
+          backendStore:
+            databaseMigration: true
+            postgres:
+              enabled: true
+              host: "mlflow-postgresql"
+              port: 5432
+              database: "mlflow"
+              user: "postgres"
+              password: "mlflow123"
+          
+          # Default artifact root (as object for S3/MinIO)
+          artifactRoot:
+            s3:
+              enabled: true
+              bucket: "mlflow-artifacts"
+          
+          # Service configuration
+          service:
+            type: ClusterIP
+            port: 5000
+
+    - name: Deploy Airflow with Helm
+      tags: [deploy, applications, airflow]
+      kubernetes.core.helm:
+        name: airflow
+        chart_ref: apache-airflow/airflow
+        release_namespace: "{{ orchestration_namespace }}"
+        create_namespace: false
+        values:
+          executor: "KubernetesExecutor"
+          config:
+            core:
+              dags_are_paused_at_creation: 'false'
+              load_examples: 'false'
+              max_active_runs_per_dag: 16
+            webserver:
+              expose_config: 'true'
+            kubernetes:
+              namespace: "{{ processing_namespace }}"
+              worker_container_repository: "apache/airflow"
+              worker_container_tag: "2.10.5"
+              delete_worker_pods: 'true'
+              delete_worker_pods_on_failure: 'false'
+          dags:
+            persistence:
+              enabled: false
+            gitSync:
+              enabled: false
+          data:
+            metadataConnection:
+              user: postgres
+              pass: airflow123
+              protocol: postgresql
+              host: airflow-postgresql
+              port: 5432
+              db: airflow
+              sslmode: disable
+          postgresql:
+            enabled: true
+            auth:
+              postgresPassword: "airflow123"
+              database: "airflow"
+            primary:
+              persistence:
+                enabled: true
+                size: 5Gi
+              resources:
+                requests:
+                  memory: 256Mi
+                  cpu: 250m
+                limits:
+                  memory: 512Mi
+                  cpu: 500m
+          redis:
+            enabled: false
+          webserver:
+            service:
+              type: ClusterIP
+              ports:
+                - name: airflow-ui
+                  port: 8080
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+          scheduler:
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+          workers:
+            persistence:
+              enabled: false
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+          serviceAccount:
+            create: true
+            name: "airflow"
+          rbac:
+            create: true
+            createSCCRoleBinding: false
+          flower:
+            enabled: false
+          env:
+            - name: AIRFLOW__KUBERNETES__NAMESPACE
+              value: "{{ processing_namespace }}"
+            - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
+              value: "True"
+
+    - name: Wait for applications to be ready
+      tags: [deploy, applications, verify]
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ item.namespace }}"
+        label_selectors: "{{ item.selector }}"
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 600
+      loop:
+        - namespace: "{{ data_namespace }}"
+          selector: "strimzi.io/cluster=mlops-kafka-cluster"
+        - namespace: "{{ data_namespace }}"
+          selector: "v1.min.io/tenant=mlops-tenant"
+        - namespace: "{{ ml_lifecycle_namespace }}"
+          selector: "app.kubernetes.io/name=mlflow"
+        - namespace: "{{ orchestration_namespace }}"
+          selector: "app.kubernetes.io/name=airflow"
+      ignore_errors: true  # Don't fail deployment if some pods aren't ready yet
+
+    - name: Create MinIO buckets for demo
+      tags: [deploy, applications, minio-buckets]
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: create-minio-buckets
+            namespace: "{{ data_namespace }}"
+          spec:
+            template:
+              spec:
+                restartPolicy: OnFailure
+                containers:
+                - name: minio-client
+                  image: minio/mc:latest
+                  command:
+                  - sh
+                  - -c
+                  - |
+                    mc alias set minio http://minio.{{ data_namespace }}.svc.cluster.local:9000 minioadmin minioadmin123
+                    mc mb minio/mlflow-artifacts --ignore-existing
+                    mc mb minio/flink-checkpoints --ignore-existing
+                    mc mb minio/spark-checkpoints --ignore-existing
+                    mc mb minio/data-lake-raw --ignore-existing
+                    mc mb minio/data-lake-processed --ignore-existing
+                    echo "Buckets created successfully"

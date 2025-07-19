@@ -1,0 +1,125 @@
+# MLOps Kafka Cluster with KRaft mode using KafkaNodePool
+# Compatible with Strimzi 0.46.1
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: controller
+  namespace: data-plane
+  labels:
+    strimzi.io/cluster: mlops-kafka-cluster
+spec:
+  replicas: 1
+  roles:
+    - controller
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 5Gi
+        deleteClaim: false
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 500m
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: broker
+  namespace: data-plane
+  labels:
+    strimzi.io/cluster: mlops-kafka-cluster
+spec:
+  replicas: 1
+  roles:
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 20Gi
+        deleteClaim: false
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: mlops-kafka-cluster
+  namespace: data-plane
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: 3.9.0
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.insync.replicas: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+# Create demo topics automatically
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: sensor-data
+  namespace: data-plane
+  labels:
+    strimzi.io/cluster: mlops-kafka-cluster
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 86400000  # 24 hours
+    compression.type: gzip
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: processed-sensor-data
+  namespace: data-plane
+  labels:
+    strimzi.io/cluster: mlops-kafka-cluster
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 86400000  # 24 hours
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: sensor-metrics
+  namespace: data-plane
+  labels:
+    strimzi.io/cluster: mlops-kafka-cluster
+spec:
+  partitions: 2
+  replicas: 1
+  config:
+    retention.ms: 604800000  # 7 days

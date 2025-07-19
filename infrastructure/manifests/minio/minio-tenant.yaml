@@ -1,0 +1,81 @@
+# MinIO credentials secret (to be created before deployment)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-root-credentials
+  namespace: data-plane
+type: Opaque
+stringData:
+  accesskey: minioadmin
+  secretkey: minioadmin123
+---
+# MinIO Tenant for MLOps platform
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: mlops-tenant
+  namespace: data-plane
+spec:
+  image: quay.io/minio/minio:RELEASE.2024-07-10T18-41-49Z
+  configuration:
+    name: minio-root-credentials
+  pools:
+    - servers: 1  # Single server for demo/local testing
+      name: pool-0
+      volumesPerServer: 2
+      volumeClaimTemplate:
+        metadata:
+          name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+  mountPath: /export
+  subPath: /data
+  requestAutoCert: false
+  podManagementPolicy: Parallel
+  env:
+    - name: MINIO_PROMETHEUS_AUTH_TYPE
+      value: "public"
+  prometheusOperator: false
+---
+# Service to expose MinIO API
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: data-plane
+spec:
+  selector:
+    v1.min.io/tenant: mlops-tenant
+  ports:
+    - name: http-minio
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+  type: ClusterIP
+---
+# Service to expose MinIO Console
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-console
+  namespace: data-plane
+spec:
+  selector:
+    v1.min.io/tenant: mlops-tenant
+  ports:
+    - name: http-console
+      port: 9001
+      protocol: TCP
+      targetPort: 9001
+  type: ClusterIP

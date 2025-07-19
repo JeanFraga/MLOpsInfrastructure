@@ -1,0 +1,20 @@
+---
+# Ansible Collections Requirements
+# Install with: ansible-galaxy collection install -r requirements.yml
+
+collections:
+  # Kubernetes and Helm management
+  - name: kubernetes.core
+    version: ">=3.1.0"
+
+  # Community modules for package management
+  - name: community.general
+    version: ">=8.0.0"
+
+  # Docker management
+  - name: community.docker
+    version: ">=3.4.0"
+
+  # Additional platform-specific modules
+  - name: ansible.posix
+    version: ">=1.5.0"
